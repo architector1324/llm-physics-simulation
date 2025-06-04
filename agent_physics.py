@@ -1,46 +1,40 @@
-import json
-import requests
+import typing
+import ollama
+import pydantic
 
-def agent_json(name: str, msg: dict, think=False):
-    return {
-        'model': name,
-        'messages': msg,
-        'think': think,
-        'stream': False,
-        'format': {
-            'type': 'array',
-            'items': {
-                'type': 'object',
-                'properties': {
-                    'x': {'type': 'number'},
-                    'y': {'type': 'number'},
-                    'vx': {'type': 'number'},
-                    'vy': {'type': 'number'}
-                },
-                'required': ['x', 'y', 'vx', 'vy']
-            }
-        }
-    }
+
+class RigidBody(pydantic.BaseModel):
+    x: float
+    y: float
+    vx: float
+    vy: float
+
+
+class World(pydantic.BaseModel):
+    bodies: typing.List[RigidBody]
+
 
 # main
 model = 'qwen3:4b'
-prompt = 'Generate 2 balls with random velocity: in center of 640x480 and in random place'
+prompt = 'Generate 3 bodies with random velocity: in center of 640x480 and remaining in random place'
 messages = []
 
 tick = 0
 
 while True:
     messages.append({'role': 'user', 'content': prompt})
-    payload = agent_json(model, messages)
-    req = requests.post(url='http://localhost:11434/api/chat', json=payload, stream=True)
 
-    prompt = 'Simulate next physics iteration with provided objects'
-    tick += 1
+    response = ollama.chat(
+        model=model,
+        messages=messages,
+        format=World.model_json_schema()
+    )
 
     # simulation
-    for msg in req.iter_lines():
-        data = json.loads(msg)
-        balls = json.loads(data['message']['content'])
-        messages.append({'role': 'assistant', 'content': json.dumps(balls)})
+    world = World.model_validate_json(response.message.content)
+    messages.append({'role': 'assistant', 'content': world.model_dump_json()})
 
-        print(f'tick {tick}: {balls}')
+    print(f'tick {tick}: {world.bodies}')
+
+    prompt = 'Simulate next physics iteration with provided bodies'
+    tick += 1
